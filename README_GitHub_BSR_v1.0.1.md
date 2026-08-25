@@ -502,13 +502,8 @@ Always inspect the map together with the numerical metrics.
 
 ---
 
-# 10. Installation
 
-See [INSTALLATION.md](INSTALLATION.md) for detailed MATLAB and QGIS installation/update instructions.
-
----
-
-# 11. Citation and license
+# 10. Citation and license
 
 The software is distributed under the **MIT License**.
 
@@ -519,15 +514,14 @@ Scientific users are requested to cite the publication describing the method. Pr
 ```text
 Visini (2026), Backbone Surface Rupture: a vector framework for
 reconstructing the principal surface rupture from mapped principal-fault traces.
-Manuscript in preparation.
+Manuscript under review.
 ```
 
 The final journal citation and DOI will replace this provisional reference after publication.
 
-See also [LICENSE_NOTE.md](LICENSE_NOTE.md) and `CITATION.cff`.
 
 ---
 
-# 12. AI-assisted development disclosure
+# 11. AI-assisted development disclosure
 
-Generative AI was used to assist with code implementation, refactoring, debugging, documentation, and preparation of the MATLAB and Python/QGIS implementations. Scientific methodology, algorithm design, parameter selection, validation, and interpretation remain the responsibility of the author(s).
+Generative AI was used to assist with code implementation,  debugging, documentation, and preparation of the MATLAB and Python/QGIS codes. Methodology, algorithm design, parameter selection, validation, and interpretation are under the responsibility of the author.
