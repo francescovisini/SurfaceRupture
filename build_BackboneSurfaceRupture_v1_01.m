@@ -7,17 +7,17 @@
 %  PURPOSE
 %  -------
 %  This script reconstructs a single ordered Backbone Surface Rupture (BSR)
-%  from complex, multi-segment principal surface rupture traces.
+%  from complex, multi-segment principal surface rupture traces (rank 1).
 %
 %  The key difference from a feature-based Least-Cost Path is that the
 %  original shapefile features are NOT treated as indivisible objects.
 %
-%  The observed principal-fault geometry is immutable. Before building the graph,
+%  The observed rank-1 geometry is immutable. Before building the graph,
 %  the code only removes consecutive duplicate vertices and zero-length
 %  segments. It never merges features, moves tips, or replaces observed
 %  polylines with simplified geometries.
 %
-%    1) preserves every cleaned original principal-fault feature;
+%    1) preserves every cleaned original rank-1 feature;
 %    2) identifies original tips and Douglas-Peucker significant vertices;
 %    3) projects tips onto nearby features to define optional junctions;
 %    4) splits graph edges at those positions while retaining the exact
@@ -43,17 +43,14 @@
 %
 %  FINAL FIGURE STYLE
 %  ------------------
-%  Observed principal-fault traces: light grey, LineWidth 0.8.
+%  Observed rank-1 traces: light grey, LineWidth 0.8.
 %  Backbone Surface Rupture: black, LineWidth 1.5.
 %  Artificial connections: red dashed, LineWidth 1.5.
 %  Dynamic junctions remain in the graph/output but are not plotted.
 %
 %  INPUT
 %  -----
-%  Any polyline shapefile containing principal-fault traces.
-%  Optionally select the principal-fault subset using any attribute field
-%  and either a numeric or text value (e.g. Comp_rank = 1 or Class = 'Main').
-%  If principalClassField is empty, all features are treated as principal.
+%  SURE2.0_ruptures.shp, using only Comp_rank == 1.
 %
 %  OUTPUT
 %  ------
@@ -107,34 +104,20 @@ ruptureShp = fullfile( ...
     'SURE2.0_ruptures', ...
     'SURE2.0_ruptures.shp');
 
-% Field containing the event identifier. Event identifiers are expected to
-% be numeric in this MATLAB reference implementation (e.g. SURE field 'IdE').
-eventField = 'IdE';
+normalListFile     = 'list_Normal2.txt';
+reverseListFile    = 'list_Reverse2.txt';
+strikeslipListFile = 'list_StrikeSlip2.txt';
 
-% OPTIONAL PRINCIPAL-FAULT FILTER.
-% Leave principalClassField empty ('') when the input shapefile already
-% contains only the principal-fault traces. Otherwise specify any attribute
-% field and the value identifying the principal traces.
-%
+% Empty means all events found in the selected principal-fault input features.
+eventIDs = [];
+% Principal-fault selection.
 % Examples:
-%   SURE 2.0:          principalClassField = 'Comp_rank';
-%                      principalClassValue = 1;
-%   Generic dataset:   principalClassField = 'Class';
-%                      principalClassValue = 'Main';
-%   Pre-filtered layer: principalClassField = '';
-%                      principalClassValue = [];
+%   principalClassField = 'Comp_rank'; principalClassValue = 1;       % SURE
+%   principalClassField = 'Class';     principalClassValue = 'Main';  % text
+%   principalClassField = '';          principalClassValue = [];      % all features
+eventField = 'IdE';
 principalClassField = 'Comp_rank';
 principalClassValue = 1;
-
-% Empty means all events represented by the selected principal-fault traces.
-% Alternatively provide a numeric vector, e.g. [19501214 19590818].
-eventIDs = [];
-
-% These lists are OPTIONAL and are used only to add Mw and kinematics to the
-% global summary. They no longer control which events are processed.
-normalListFile     = 'list_Normal.txt';
-reverseListFile    = 'list_Reverse.txt';
-strikeslipListFile = 'list_StrikeSlip.txt';
 
 % -------------------------------------------------------------------------
 % DYNAMIC JUNCTIONS AND FEATURE SPLITTING
@@ -336,37 +319,48 @@ end
 fprintf('Reading %s ...\n',ruptureShp);
 Rall = shaperead(ruptureShp);
 
-% Event identifiers.
-if ~isfield(Rall,eventField)
-    error('Event field "%s" not found in the input shapefile.',eventField);
-end
-idAll = getNumericField(Rall,eventField);
+% -------------------------------------------------------------------------
+% GENERAL INPUT SELECTION
+% -------------------------------------------------------------------------
+% Event IDs and principal-fault traces are determined from the shapefile.
+% The optional Normal/Reverse/StrikeSlip lists are used ONLY to populate
+% Mw and Kinematics in the final summary.
 
-% Principal-fault selection. The field is optional and the requested value
-% can be numeric or text. Matching is case-insensitive for text and uses a
-% small numerical tolerance for numeric values, mirroring the QGIS tool.
-if strlength(strtrim(string(principalClassField)))==0
+idAll = getFlexibleField(Rall,eventField);
+
+if isempty(principalClassField)
     principalMask = true(numel(Rall),1);
-    fprintf('Principal-fault filter: none | using all input features.\n');
+    fprintf('Principal-fault filter: none | using all %d input features\n', ...
+        numel(Rall));
 else
-    if ~isfield(Rall,principalClassField)
-        error('Principal-fault classification field "%s" not found.', ...
-            principalClassField);
-    end
-    principalMask = matchAttributeValue( ...
-        Rall,principalClassField,principalClassValue);
-    fprintf('Principal-fault filter: %s = %s | %d input features selected.\n', ...
-        principalClassField,char(string(principalClassValue)),sum(principalMask));
+    principalValues = getFlexibleField(Rall,principalClassField);
+    principalMask = matchFieldValue(principalValues,principalClassValue);
+
+    fprintf('Principal-fault filter: %s = %s | %d of %d input features selected\n', ...
+        principalClassField,string(principalClassValue), ...
+        sum(principalMask),numel(Rall));
 end
 
 if ~any(principalMask)
-    error('No input features match the selected principal-fault filter.');
+    error(['No principal-fault features were selected. Check ', ...
+           'principalClassField and principalClassValue.']);
 end
 
 eventInfo = readEventLists(normalListFile,reverseListFile,strikeslipListFile);
 
 if isempty(eventIDs)
-    eventIDs = unique(idAll(principalMask & isfinite(idAll)));
+    % IMPORTANT: derive events from the selected shapefile features,
+    % never from the optional metadata lists.
+    selectedIDs = idAll(principalMask);
+
+    if isnumeric(selectedIDs)
+        selectedIDs = selectedIDs(isfinite(selectedIDs));
+        eventIDs = unique(selectedIDs,'stable');
+    else
+        selectedIDs = string(selectedIDs);
+        selectedIDs = selectedIDs(~ismissing(selectedIDs) & strlength(selectedIDs)>0);
+        eventIDs = unique(selectedIDs,'stable');
+    end
 else
     eventIDs = eventIDs(:);
 end
@@ -385,11 +379,12 @@ for ie = 1:numel(eventIDs)
 
     fprintf('\n[%d/%d] Event %d\n',ie,numel(eventIDs),eventID);
 
-    idx = idAll == eventID & principalMask;
+    eventMask = matchFieldValue(idAll,eventID);
+    idx = eventMask & principalMask;
     PFraw = Rall(idx);
 
     if isempty(PFraw)
-        warning('Event %d: no principal-fault features.',eventID);
+        warning('Event %s: no principal-fault features.',string(eventID));
         continue;
     end
 
@@ -427,7 +422,7 @@ for ie = 1:numel(eventIDs)
     original = original(valid);
 
     if isempty(original)
-        warning('Event %d: all principal-fault parts are degenerate.',eventID);
+        warning('Event %d: all rank-1 parts are degenerate.',eventID);
         continue;
     end
 
@@ -439,19 +434,19 @@ for ie = 1:numel(eventIDs)
         minimumCleanFeatureLength_m);
 
     if isempty(original)
-        warning('Event %d: preprocessing removed all principal-fault parts.',eventID);
+        warning('Event %d: preprocessing removed all rank-1 parts.',eventID);
         continue;
     end
 
     totalObservedLength_m = sum([original.length_m]);
 
-    fprintf('  Original principal-fault parts: %d\n',nPartsBeforePreprocessing);
-    fprintf('  Cleaned immutable principal-fault parts: %d\n',numel(original));
+    fprintf('  Original rank-1 parts: %d\n',nPartsBeforePreprocessing);
+    fprintf('  Cleaned immutable rank-1 parts: %d\n',numel(original));
     fprintf('  Removed duplicate vertices: %d\n', ...
         preprocessingStats.RemovedVertices);
     fprintf('  Geometrically moved tips: 0\n');
     fprintf('  Merged feature pairs: 0\n');
-    fprintf('  Total observed principal-fault length: %.2f km\n', ...
+    fprintf('  Total observed rank-1 length: %.2f km\n', ...
         totalObservedLength_m/1000);
 
     %% --------------------------------------------------------------------
@@ -895,7 +890,17 @@ for ie = 1:numel(eventIDs)
     % Global summary row.
     % ---------------------------------------------------------------------
 
-    infoRow = eventInfo(eventInfo.IdE == eventID,:);
+    if isempty(eventInfo)
+        infoRow = eventInfo;
+    else
+        if isnumeric(eventID)
+        infoRow = eventInfo(eventInfo.IdE == eventID,:);
+    else
+        % Optional list metadata use numeric IdE. Text event IDs simply
+        % remain without Mw/Kinematics metadata.
+        infoRow = eventInfo([],:);
+    end
+    end
 
     mw = NaN;
     kin = "";
@@ -949,22 +954,77 @@ fprintf('\nBSR processing completed.\n');
 
 function eventInfo = readEventLists(normalFile,reverseFile,strikeslipFile)
 
-    eventInfo = table();
+    % Optional event metadata.
+    %
+    % These files are NOT required to reconstruct the BSR. They are used
+    % only to populate Mw and Kinematics in BSR_summary.csv.
+    %
+    % Always create the expected columns, even when none of the optional
+    % files exists. This guarantees that later references to eventInfo.IdE,
+    % eventInfo.Mw and eventInfo.Kinematics remain valid.
 
-    files = {normalFile, reverseFile, strikeslipFile};
+    eventInfo = table( ...
+        zeros(0,1), ...
+        zeros(0,1), ...
+        strings(0,1), ...
+        'VariableNames',{'IdE','Mw','Kinematics'});
+
+    files  = {normalFile, reverseFile, strikeslipFile};
     labels = ["Normal", "Reverse", "StrikeSlip"];
 
+    missingFiles = strings(0,1);
+
     for iFile = 1:numel(files)
+
         filename = files{iFile};
+
+        % Empty filename explicitly disables that optional metadata source.
+        if isempty(filename) || strlength(string(filename)) == 0
+            continue;
+        end
+
         if exist(filename,'file')
+
             A = readmatrix(filename);
-            if ~isempty(A)
-                T = table(A(:,1),A(:,2),repmat(labels(iFile),size(A,1),1), ...
-                    'VariableNames',{'IdE','Mw','Kinematics'});
-                eventInfo = [eventInfo;T]; %#ok<AGROW>
+
+            if isempty(A)
+                continue;
             end
+
+            % First column = event ID.
+            if size(A,2) < 1
+                continue;
+            end
+
+            id = A(:,1);
+            n  = size(A,1);
+
+            % Second column = Mw, when available.
+            if size(A,2) >= 2
+                mw = A(:,2);
+            else
+                mw = nan(n,1);
+            end
+
+            % Remove rows without a valid event identifier.
+            valid = isfinite(id);
+            id = id(valid);
+            mw = mw(valid);
+
+            if isempty(id)
+                continue;
+            end
+
+            T = table( ...
+                id, ...
+                mw, ...
+                repmat(labels(iFile),numel(id),1), ...
+                'VariableNames',{'IdE','Mw','Kinematics'});
+
+            eventInfo = [eventInfo;T]; %#ok<AGROW>
+
         else
-            warning('Event-list file not found: %s',filename);
+            missingFiles(end+1,1) = string(filename); %#ok<AGROW>
         end
     end
 
@@ -972,42 +1032,67 @@ function eventInfo = readEventLists(normalFile,reverseFile,strikeslipFile)
         [~,ia] = unique(eventInfo.IdE,'stable');
         eventInfo = eventInfo(ia,:);
     end
+
+    % Missing metadata files are informational only, not processing errors.
+    if ~isempty(missingFiles)
+        fprintf(['Optional event metadata file(s) not found: %s\n', ...
+                 '  BSR reconstruction will continue normally.\n', ...
+                 '  Mw will be NaN and Kinematics will be empty where ', ...
+                 'metadata are unavailable.\n'], ...
+                 strjoin(missingFiles,', '));
+    end
 end
 
-function mask = matchAttributeValue(S,fieldName,targetValue)
+function values = getFlexibleField(S,fieldName)
+
+    if ~isfield(S,fieldName)
+        error('Input field "%s" was not found in the shapefile.',fieldName);
+    end
 
     raw = {S.(fieldName)}';
-    mask = false(numel(raw),1);
-    targetText = strtrim(string(targetValue));
-    targetNumeric = str2double(targetText);
-    targetIsNumeric = isfinite(targetNumeric);
 
-    for i = 1:numel(raw)
-        value = raw{i};
+    % Preserve numeric fields as numeric. Otherwise return strings.
+    isNumericEntry = cellfun(@(v) isnumeric(v) && isscalar(v),raw);
 
-        if isempty(value)
-            continue;
-        end
-
-        valueText = strtrim(string(value));
-
-        % Text comparison is case-insensitive. This handles values such as
-        % 'Main', 'MAIN', 'Principal', etc.
-        if strcmpi(valueText,targetText)
-            mask(i) = true;
-            continue;
-        end
-
-        % If both values are numerically interpretable, compare numerically
-        % so that 1, 1.0 and '1' are treated as equivalent.
-        if targetIsNumeric
-            valueNumeric = str2double(valueText);
-            if isfinite(valueNumeric) && abs(valueNumeric-targetNumeric)<=1e-9
-                mask(i) = true;
+    if all(isNumericEntry)
+        values = cellfun(@double,raw);
+    else
+        values = strings(numel(raw),1);
+        for i = 1:numel(raw)
+            if ismissing(string(raw{i}))
+                values(i) = missing;
+            else
+                values(i) = string(raw{i});
             end
         end
     end
 end
+
+
+function mask = matchFieldValue(values,targetValue)
+
+    % Numeric fields: numeric comparison with a small tolerance.
+    if isnumeric(values)
+        if isnumeric(targetValue)
+            target = double(targetValue);
+        else
+            target = str2double(string(targetValue));
+        end
+
+        if ~isfinite(target)
+            error('Cannot compare numeric field with value "%s".',string(targetValue));
+        end
+
+        mask = isfinite(values) & abs(double(values)-target) < 1e-9;
+        return;
+    end
+
+    % Text fields: case-insensitive, whitespace-trimmed comparison.
+    valuesText = strtrim(string(values));
+    targetText = strtrim(string(targetValue));
+    mask = ~ismissing(valuesText) & strcmpi(valuesText,targetText);
+end
+
 
 function values = getNumericField(S,fieldName)
 
