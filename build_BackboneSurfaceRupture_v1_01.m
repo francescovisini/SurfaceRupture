@@ -104,9 +104,9 @@ ruptureShp = fullfile( ...
     'SURE2.0_ruptures', ...
     'SURE2.0_ruptures.shp');
 
-normalListFile     = 'list_Normal2.txt';
-reverseListFile    = 'list_Reverse2.txt';
-strikeslipListFile = 'list_StrikeSlip2.txt';
+normalListFile     = 'list_Normal.txt';
+reverseListFile    = 'list_Reverse.txt';
+strikeslipListFile = 'list_StrikeSlip.txt';
 
 % Empty means all events found in the selected principal-fault input features.
 eventIDs = [];
